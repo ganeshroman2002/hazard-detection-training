@@ -1,0 +1,10 @@
+# download the youlov11n model
+from ultralytics import YOLO
+
+# Initialize the YOLOv11 small model
+# This automatically downloads 'yolo11s.pt' if not found locally
+model = YOLO("yolo11s.pt")
+
+# Optional: Verify the download by displaying model info
+print("Model downloaded successfully:")
+model.info()
