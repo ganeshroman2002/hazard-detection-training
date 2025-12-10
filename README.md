@@ -1,187 +1,324 @@
-# Animal Detection with YOLO - Project Guide
+# YOLO Animal Detection - Training Pipeline
 
-This project provides a complete pipeline for processing the Animal Detection dataset and training a YOLO model on Kaggle. It handles directory structuring, label normalization, and environment compatibility issues (specifically OpenCV).
+A complete pipeline for preparing and training a YOLO model for animal detection using the Animals Detection Images Dataset.
 
----
+## 📋 Overview
 
-## 📋 Table of Contents
-1. [Overview](#overview)
-2. [Step 1: Data Preprocessing Script](#step-1-data-preprocessing-script)
-3. [Step 2: Training Script](#step-2-training-script)
-4. [How to Run](#how-to-run)
+This project provides a robust solution for:
+- Converting animal detection datasets to YOLO format
+- Validating and normalizing bounding box annotations
+- Training a YOLOv11 model for multi-class animal detection
 
----
+## 🚀 Quick Start
 
-## Overview
+### Prerequisites
 
-The workflow consists of two distinct stages:
-1.  **Preprocessing:** Cleans the raw dataset, validates coordinates, normalizes labels, and splits data into Train/Validation sets.
-2.  **Training:** Sets up the correct Python environment (downgrades OpenCV) and trains a YOLOv11s model.
+```bash
+pip install ultralytics opencv-python pillow pyyaml tqdm
+```
 
----
+### Dataset Structure
 
-## Step 1: Data Preprocessing Script
+Expected input format:
+```
+animals-detection-images-dataset/
+├── train/
+│   ├── class1/
+│   │   ├── image1.jpg
+│   │   ├── image2.jpg
+│   │   └── Label/
+│   │       ├── image1.txt
+│   │       └── image2.txt
+│   └── class2/
+│       └── ...
+└── test/
+    └── ...
+```
 
-Create a file named `data_preprocessing.py` and paste the following code:
+## 📦 Data Processing
+
+### Features
+
+The data processing module handles:
+
+✅ **Automatic label validation and normalization**
+- Converts pixel coordinates to normalized YOLO format (0-1 range)
+- Validates bounding box coordinates
+- Filters invalid annotations
+
+✅ **Smart dataset splitting**
+- Configurable train/validation split (default: 80/20)
+- Randomized shuffling for better generalization
+- Preserves class balance
+
+✅ **Robust error handling**
+- Skips corrupted images
+- Handles missing labels gracefully
+- Detailed processing statistics
+
+### Usage
 
 ```python
-import os
-import shutil
-import random
-import yaml
-from tqdm import tqdm
-from PIL import Image
+from yolo_data_prep import prepare_detection_dataset
 
-# --- Configuration ---
-SOURCE_ROOT = '/kaggle/input/animals-detection-images-dataset'
-DATASET_PATH = '/kaggle/working/yolo_dataset'
-SPLIT_RATIO = 0.8  # 80% train, 20% val
+# Configure paths
+source_root = '/path/to/animals-detection-images-dataset'
+dataset_path = '/path/to/output/yolo_dataset'
+split_ratio = 0.8  # 80% train, 20% validation
 
-def validate_and_normalize_label(label_path, img_width, img_height, class_id):
-    """
-    Read a label file, validate it, and normalize coordinates if needed.
-    Returns list of properly formatted YOLO annotation lines.
-    """
-    try:
-        valid_lines = []
-        if not os.path.exists(label_path):
-            return []
-        
-        with open(label_path, 'r') as f:
-            for line in f:
-                parts = line.strip().split()
-                # Need at least 5 values: class, x_center, y_center, width, height
-                if len(parts) < 5:
-                    continue
-                
-                try:
-                    # Parse coordinates (skip the old class ID at parts[0])
-                    x_center = float(parts[1])
-                    y_center = float(parts[2])
-                    width = float(parts[3])
-                    height = float(parts[4])
-                    
-                    # Normalize pixel coordinates if necessary
-                    if x_center > 1.0 or y_center > 1.0 or width > 1.0 or height > 1.0:
-                        x_center = x_center / img_width
-                        y_center = y_center / img_height
-                        width = width / img_width
-                        height = height / img_height
-                    
-                    # Validate normalized coordinates
-                    if not (0 <= x_center <= 1 and 0 <= y_center <= 1 and 
-                            0 < width <= 1 and 0 < height <= 1):
-                        continue
-                    
-                    valid_lines.append(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}")
-                    
-                except (ValueError, ZeroDivisionError):
-                    continue
-        
-        return valid_lines
-        
-    except Exception as e:
-        return []
+# Process dataset
+prepare_detection_dataset(source_root, dataset_path, split_ratio)
+```
 
-def prepare_detection_dataset(source_root, dest_root, ratio):
-    print(f"Preparing dataset from: {source_root}")
+### Output Structure
+
+```
+yolo_dataset/
+├── images/
+│   ├── train/
+│   │   ├── img1.jpg
+│   │   └── img2.jpg
+│   └── val/
+│       └── ...
+├── labels/
+│   ├── train/
+│   │   ├── img1.txt
+│   │   └── img2.txt
+│   └── val/
+│       └── ...
+└── data.yaml
+```
+
+### Label Format
+
+Each `.txt` file contains annotations in YOLO format:
+```
+<class_id> <x_center> <y_center> <width> <height>
+```
+
+All coordinates are normalized (0.0 - 1.0).
+
+## 🎯 Model Training
+
+### Training Configuration
+
+```python
+from ultralytics import YOLO
+
+# Initialize model
+model = YOLO('yolo11s.pt')  # Options: yolo11n, yolo11s, yolo11m, yolo11l, yolo11x
+
+# Train
+results = model.train(
+    data='yolo_dataset/data.yaml',
+    epochs=10,              # Number of training epochs
+    imgsz=640,             # Input image size
+    batch=16,              # Batch size
+    name='animal_detector', # Experiment name
+    project='runs/detect',  # Save directory
+    amp=False,             # Automatic Mixed Precision
+    exist_ok=True,         # Overwrite existing experiment
+    workers=0              # Data loading workers (0 for Windows)
+)
+```
+
+### Hyperparameters
+
+| Parameter | Description | Default | Recommended Range |
+|-----------|-------------|---------|-------------------|
+| `epochs` | Training iterations | 10 | 50-300 |
+| `imgsz` | Input image size | 640 | 320-1280 |
+| `batch` | Batch size | 16 | 8-32 (depends on GPU) |
+| `lr0` | Initial learning rate | 0.01 | 0.001-0.01 |
+| `patience` | Early stopping patience | 100 | 50-100 |
+
+### Model Variants
+
+| Model | Size | Speed | mAP | Use Case |
+|-------|------|-------|-----|----------|
+| YOLOv11n | Nano | Fastest | Lower | Mobile/Edge devices |
+| YOLOv11s | Small | Fast | Good | General purpose |
+| YOLOv11m | Medium | Medium | Better | Balanced |
+| YOLOv11l | Large | Slow | Best | High accuracy |
+| YOLOv11x | XLarge | Slowest | Highest | Research/Competition |
+
+## 📊 Training Outputs
+
+After training completes, find results in:
+
+```
+runs/detect/animal_detector/
+├── weights/
+│   ├── best.pt         # Best model checkpoint
+│   └── last.pt         # Last epoch checkpoint
+├── results.png         # Training metrics plot
+├── confusion_matrix.png
+├── F1_curve.png
+├── PR_curve.png
+└── val_batch0_pred.jpg # Sample predictions
+```
+
+## 🔍 Model Evaluation
+
+```python
+from ultralytics import YOLO
+
+# Load trained model
+model = YOLO('runs/detect/animal_detector/weights/best.pt')
+
+# Validate
+metrics = model.val()
+
+print(f"mAP50: {metrics.box.map50}")
+print(f"mAP50-95: {metrics.box.map}")
+```
+
+## 🎬 Inference
+
+### Single Image
+
+```python
+model = YOLO('runs/detect/animal_detector/weights/best.pt')
+
+# Predict
+results = model('path/to/image.jpg')
+
+# Display
+results[0].show()
+
+# Save
+results[0].save('output.jpg')
+```
+
+### Batch Prediction
+
+```python
+# Process directory
+results = model('path/to/images/')
+
+for r in results:
+    r.save(filename=f'prediction_{r.path.stem}.jpg')
+```
+
+### Video
+
+```python
+results = model('path/to/video.mp4', stream=True)
+
+for r in results:
+    r.show()  # Display frame
+```
+
+## ⚙️ Advanced Configuration
+
+### Custom Training Arguments
+
+```python
+results = model.train(
+    data='data.yaml',
+    epochs=100,
+    imgsz=640,
+    batch=16,
     
-    # 1. Cleanup Destination
-    if os.path.exists(dest_root):
-        shutil.rmtree(dest_root)
+    # Augmentation
+    hsv_h=0.015,      # HSV-Hue augmentation
+    hsv_s=0.7,        # HSV-Saturation
+    hsv_v=0.4,        # HSV-Value
+    degrees=0.0,      # Rotation
+    translate=0.1,    # Translation
+    scale=0.5,        # Scale
+    flipud=0.0,       # Flip up-down
+    fliplr=0.5,       # Flip left-right
+    mosaic=1.0,       # Mosaic augmentation
     
-    # 2. Create YOLO Directory Structure
-    for split in ['train', 'val']:
-        os.makedirs(os.path.join(dest_root, 'images', split), exist_ok=True)
-        os.makedirs(os.path.join(dest_root, 'labels', split), exist_ok=True)
+    # Optimization
+    optimizer='AdamW', # SGD, Adam, AdamW
+    lr0=0.01,         # Initial learning rate
+    lrf=0.01,         # Final learning rate
+    momentum=0.937,   # SGD momentum
+    weight_decay=0.0005,
+    
+    # Loss weights
+    box=7.5,          # Box loss gain
+    cls=0.5,          # Class loss gain
+    dfl=1.5,          # DFL loss gain
+    
+    # Other
+    cos_lr=True,      # Cosine learning rate scheduler
+    close_mosaic=10,  # Disable mosaic last N epochs
+    amp=True,         # Automatic Mixed Precision
+)
+```
 
-    # 3. Identify Classes
-    train_source = os.path.join(source_root, 'train')
-    if not os.path.exists(train_source):
-        raise FileNotFoundError(f"Source folder not found: {train_source}")
-        
-    classes = sorted([d for d in os.listdir(train_source) 
-                      if os.path.isdir(os.path.join(train_source, d))])
-    class_to_id = {name: i for i, name in enumerate(classes)}
-    
-    print(f"Found {len(classes)} classes: {classes}")
+## 🐛 Troubleshooting
 
-    # 4. Process Each Class
-    total_processed = 0
-    total_valid = 0
-    
-    for class_name in tqdm(classes, desc="Processing classes"):
-        class_id = class_to_id[class_name]
-        all_valid_pairs = []
-        
-        # Gather from both train and test folders
-        for subset in ['train', 'test']:
-            class_dir = os.path.join(source_root, subset, class_name)
-            label_dir = os.path.join(class_dir, 'Label')
-            
-            if not os.path.exists(class_dir) or not os.path.exists(label_dir):
-                continue
-            
-            images = [f for f in os.listdir(class_dir) 
-                      if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
-            
-            for img_file in images:
-                total_processed += 1
-                src_img_path = os.path.join(class_dir, img_file)
-                label_file = os.path.splitext(img_file)[0] + '.txt'
-                src_label_path = os.path.join(label_dir, label_file)
-                
-                if not os.path.exists(src_label_path):
-                    continue
-                
-                try:
-                    with Image.open(src_img_path) as img:
-                        img_width, img_height = img.size
-                except:
-                    continue
-                
-                valid_lines = validate_and_normalize_label(src_label_path, img_width, img_height, class_id)
-                if valid_lines:
-                    all_valid_pairs.append((src_img_path, valid_lines, img_file))
+### OpenCV Version Issues
 
-        # 5. Shuffle and Split
-        random.shuffle(all_valid_pairs)
-        split_point = int(len(all_valid_pairs) * ratio)
-        
-        train_pairs = all_valid_pairs[:split_point]
-        val_pairs = all_valid_pairs[split_point:]
-        
-        def process_batch(pairs, split_name):
-            nonlocal total_valid
-            for src_img, label_lines, filename in pairs:
-                dest_img_path = os.path.join(dest_root, 'images', split_name, filename)
-                label_filename = os.path.splitext(filename)[0] + '.txt'
-                label_path = os.path.join(dest_root, 'labels', split_name, label_filename)
-                
-                shutil.copy2(src_img, dest_img_path)
-                with open(label_path, 'w') as f:
-                    f.write("\n".join(label_lines))
-                total_valid += 1
+The script automatically fixes OpenCV compatibility:
 
-        process_batch(train_pairs, 'train')
-        process_batch(val_pairs, 'val')
-    
-    # 6. Generate data.yaml
-    yaml_content = {
-        'path': dest_root,
-        'train': 'images/train',
-        'val': 'images/val',
-        'names': {i: name for i, name in enumerate(classes)}
-    }
-    
-    yaml_path = os.path.join(dest_root, 'data.yaml')
-    with open(yaml_path, 'w') as f:
-        yaml.dump(yaml_content, f)
-    
-    print(f"\nPreprocessing Complete!")
-    print(f"Total processed: {total_processed}")
-    print(f"Total valid dataset size: {total_valid}")
-    print(f"Config saved to: {yaml_path}")
+```python
+# Handled automatically in the script
+subprocess.check_call([
+    sys.executable, '-m', 'pip', 'install', 
+    'opencv-python==4.10.0.84'
+])
+```
 
-if __name__ == "__main__":
-    prepare_detection_dataset(SOURCE_ROOT, DATASET_PATH, SPLIT_RATIO)
+### Common Issues
+
+**Out of Memory (OOM)**
+- Reduce `batch` size
+- Reduce `imgsz`
+- Use a smaller model variant
+
+**Slow Training**
+- Enable `amp=True` for mixed precision
+- Reduce `workers` if CPU bottleneck
+- Use GPU if available
+
+**Poor Performance**
+- Increase `epochs`
+- Augment data more aggressively
+- Use a larger model
+- Check label quality
+
+## 📈 Performance Tips
+
+1. **Data Quality**: Ensure accurate bounding boxes
+2. **Class Balance**: Balance training samples per class
+3. **Augmentation**: Use appropriate data augmentation
+4. **Transfer Learning**: Start with pretrained weights
+5. **Hyperparameter Tuning**: Experiment with learning rates and batch sizes
+
+## 📝 Statistics & Monitoring
+
+The script provides detailed statistics:
+
+```
+Dataset preparation complete!
+  Total images processed: 5000
+  Successfully created: 4800
+  Skipped (no valid labels): 150
+  Skipped (bad images): 50
+
+Training: 3840 images, 3840 labels
+Validation: 960 images, 960 labels
+```
+
+## 🔗 Resources
+
+- [Ultralytics YOLOv11 Docs](https://docs.ultralytics.com/)
+- [YOLO Format Specification](https://docs.ultralytics.com/datasets/detect/)
+- [Training Tips](https://docs.ultralytics.com/guides/model-training-tips/)
+
+## 📄 License
+
+This pipeline is provided as-is. Please check the license of the YOLO model and dataset you're using.
+
+## 🤝 Contributing
+
+Feel free to open issues or submit pull requests for improvements!
+
+---
+
+**Note**: For Kaggle environments, the script includes automatic OpenCV version management to ensure compatibility.
